@@ -14,14 +14,14 @@
 
 	"$phong"                    "1"
 	"$phongboost"               "0"
-	"$phongfresnelranges"       "[0.05 0.115 0.945]"
+	"$phongfresnelranges"       "[0.0 1.5 2]"
 	"$phongtint"           		"[0.83137 1 1]"
 	// "$phongtint"           		"{212 255 255}"
 	"$phongalbedotint"			"1"
 
 	"$rimlight"					"1"
 	"$rimlightexponent"			"5000"
-	"$rimlightboost"            "4"
+	"$rimlightboost"            "0.1"
 
-	"$lightwarptexture" 		"cpthazama/shader_cel_common"
+	"$lightwarptexture" 		"cpthazama/shader_cel_common_b"
 }
