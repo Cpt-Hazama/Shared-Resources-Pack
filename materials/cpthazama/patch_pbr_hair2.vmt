@@ -1,0 +1,19 @@
+"VertexLitGeneric"
+{
+	"$basetexture" 				"vgui/white"
+	"$bumpmap"					"vj_base/flat"
+	"$phongexponenttexture"		"vj_base/exponent"
+
+	"$nodecal"					"1"
+	"$translucent"				"1"
+	"$allowalphatocoverage"		"1"
+
+	"$phong"                     "1"
+	"$phongboost"                "100"
+	"$phongexponent"             "80"
+	"$phongfresnelranges"        "[0.15 0.545 0.115]"
+	"$phongdisablehalflambert"   "1"
+	"$phongalbedotint"           "1"
+
+	"$normalmapalphaenvmapmask"  "1"
+}

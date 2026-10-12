@@ -1,5 +1,111 @@
 VJ = VJ or {}
 VJ.CPT = VJ.CPT or {}
+VJ.CPT.AnimationCache = VJ.CPT.AnimationCache or {}
+
+local bit_band = bit.band
+local string_start = string.StartWith
+local string_remove = string.gsub
+
+STUDIO_LOOPING = 1
+STUDIO_SNAP = 2
+STUDIO_DELTA = 4
+STUDIO_AUTOPLAY = 8
+STUDIO_POST = 16
+STUDIO_ALLZEROS = 32
+STUDIO_FRAMEANIM = 64
+STUDIO_CYCLEPOSE = 128
+STUDIO_REALTIME = 256
+STUDIO_LOCAL = 512
+STUDIO_HIDDEN = 1024
+STUDIO_OVERRIDE = 2048
+STUDIO_ACTIVITY = 4096
+STUDIO_EVENT = 8192
+STUDIO_WORLD = 16384
+STUDIO_NOFORCELOOP = 32768
+STUDIO_EVENT_CLIENT = 65536
+STUDIO_WORLD_AND_RELATIVE = 131072
+STUDIO_ROOTXFORM = 262144
+
+function VJ.CPT:CacheAnimations(ent)
+	if !IsValid(ent) then return end
+	local model = ent:GetModel()
+	if VJ.CPT.AnimationCache[model] then return end
+
+	VJ.CPT.AnimationCache[model] = {}
+	local animCache = 0
+	local info = nil
+	local done = ent:GetAnimInfo(0).label
+	for i = 0, ent:GetAnimCount() -1 do
+		info = ent:GetAnimInfo(i)
+		if info then
+			local label, fps, flags, frames = info.label, info.fps, info.flags, info.numframes
+			if string_start(label,"@") then
+				label = string_remove(label,"@","")
+			end
+			VJ.CPT.AnimationCache[model][label] = {
+				Sequence = label,
+				FPS = fps,
+				StudioFlags = flags,
+				FrameCount = frames,
+				Activity = ent:GetSequenceActivity(ent:LookupSequence(label)),
+				IsLoop = bit_band(flags, STUDIO_LOOPING) != 0,
+				IsAdditive = bit_band(flags, STUDIO_DELTA) != 0,
+				IsLayered = bit_band(flags, STUDIO_AUTOPLAY) != 0,
+				HasEvents = bit_band(flags, STUDIO_EVENT) != 0,
+				NoForceLoop = bit_band(flags, STUDIO_NOFORCELOOP) != 0,
+			}
+			animCache = animCache +1
+			-- if label == done then
+			-- 	break
+			-- end
+		end
+	end
+
+	print("[Shared Resources] Cached " .. animCache .. " animation data entries for " .. model)
+	if GetConVar("developer"):GetInt() == 1 then
+		PrintTable(VJ.CPT.AnimationCache[model])
+	end
+end
+
+function VJ.CPT:GetCachedAnimations(mdlOrEnt)
+	if !mdlOrEnt then return end
+	if isstring(mdlOrEnt) then
+		return VJ.CPT.AnimationCache[mdlOrEnt]
+	elseif IsValid(mdlOrEnt) then
+		return VJ.CPT.AnimationCache[mdlOrEnt:GetModel()]
+	end
+end
+
+function VJ.CPT:GetCachedAnimation(mdlOrEnt,anim)
+	if !mdlOrEnt or !anim then return end
+	local animCache = VJ.CPT:GetCachedAnimations(mdlOrEnt)
+	if animCache then
+		return animCache[anim]
+	end
+end
+
+function VJ.CPT:AnimationHasFlag(mdlOrEnt,anim,flag)
+	if !mdlOrEnt or !anim or !flag then return end
+	local animData = VJ.CPT:GetCachedAnimation(mdlOrEnt,anim)
+	if animData then
+		return bit_band(animData.StudioFlags,flag) == flag
+	end
+end
+
+function VJ.CPT:GetAnimationActivity(ent,anim)
+	local animCache = VJ.CPT:GetCachedAnimations(ent:GetModel(),anim)
+	return animCache && animCache.Activity or -1
+end
+
+hook.Add("OnEntityCreated","SRP.CacheAnimations",function(ent)
+	if !IsValid(ent) then return end
+	if ent:IsNPC() or ent:IsNextBot() or ent:IsPlayer() or ent:IsRagdoll() then
+		timer.Simple(0.05,function()
+			if !IsValid(ent) then return end
+			VJ.CPT:CacheAnimations(ent)
+		end)
+	end
+end)
 
 if SERVER then
 	function VJ.CPT:SetClearPos(self,origin,disableGroundSnap)
@@ -164,4 +270,316 @@ if SERVER then
 
 		return pos
 	end
+
+    local world = game.GetWorld()
+    local vecZero = Vector(0, 0, 0)
+    local vecForward = Vector(1, 0, 0)
+
+    local function _resolveEnt(ent, fallback)
+        if IsValid(ent) then return ent end
+        if IsValid(fallback) then return fallback end
+        return world
+    end
+
+    local function _resolvePos(data, attacker)
+        local origin = data.Origin or data.StartPos or data.Position
+        if isvector(origin) then return origin end
+        if IsValid(attacker) && attacker != world then return attacker:GetPos() end
+        return vecZero
+    end
+
+    local function _resolveDir(data, attacker)
+        local dir = data.Direction or data.AttackDirection or data.ConeDirection
+        if isvector(dir) && dir:LengthSqr() > 0 then return dir:GetNormalized() end
+        if IsValid(attacker) && attacker != world then return attacker:GetForward() end
+        return vecForward
+    end
+
+    local function _doCallbacks(callbacks, ...)
+        if isfunction(callbacks) then
+            return callbacks(...) != false
+        end
+        if istable(callbacks) then
+            for _, fn in ipairs(callbacks) do
+                if isfunction(fn) && fn(...) == false then return false end
+            end
+        end
+        return true
+    end
+
+    local function _isIgnored(ent, ignore)
+        if !ignore then return false end
+        if IsValid(ignore) then return ent == ignore end
+        if isstring(ignore) then return ent:GetClass() == ignore end
+        if !istable(ignore) then return false end
+
+        if ignore[ent] == true or ignore[ent:GetClass()] == true then return true end
+        for _, value in pairs(ignore) do
+            if IsValid(value) && value == ent then return true end
+            if isstring(value) && value == ent:GetClass() then return true end
+        end
+        return false
+    end
+
+    local function _runFilter(ent, filter, data)
+        if !filter then return true end
+        if isfunction(filter) then return filter(ent, data) != false end
+        if IsValid(filter) then return ent == filter end
+        if isstring(filter) then return ent:GetClass() == filter end
+        if !istable(filter) then return true end
+
+        if filter[ent] == true or filter[ent:GetClass()] == true then return true end
+        for _, value in pairs(filter) do
+            if IsValid(value) && value == ent then return true end
+            if isstring(value) && value == ent:GetClass() then return true end
+        end
+        return false
+    end
+
+    local function _getDamage(value, ent, data, fallback)
+        if isfunction(value) then
+            local result = value(ent, data)
+            if isnumber(result) then return result end
+            return fallback
+        end
+        return tonumber(value) or fallback
+    end
+
+    local function _applyDamage(dmgInfo, ent, data, attacker, inflictor, amount, dmgType, dmgPos)
+        dmgInfo:SetDamage(amount)
+        dmgInfo:SetDamageType(dmgType)
+        dmgInfo:SetAttacker(attacker)
+        dmgInfo:SetInflictor(inflictor)
+        dmgInfo:SetDamagePosition(dmgPos)
+
+        if data.DamageFlag != nil then dmgInfo:SetDamageCustom(tonumber(data.DamageFlag) or 0) end
+        if data.AmmoType != nil then dmgInfo:SetAmmoType(tonumber(data.AmmoType) or -1) end
+        if isvector(data.ReportedPosition) then dmgInfo:SetReportedPosition(data.ReportedPosition) end
+    end
+
+    --[[---------------------------------------------------------------------
+        Common fields:
+            Attacker            entity | default: world
+            Inflictor           entity | default: Attacker/world
+            Origin              Vector | default: Attacker:GetPos()/0,0,0
+            Direction           Vector | default: Attacker:GetForward()/+X
+            Distance            number | default: 100
+            Angle               number | default: 100 degrees
+            Damage              number/function | default: 10
+            DamageType          enum | default: DMG_SLASH
+            DamageAttacker      bool | default: false
+            Use3DAngle          bool | default: false (VJ-style flat XY cone)
+            VisibilityCheck     bool | default: false
+            Filter              entity/class/table/function | optional allow-list
+            Ignore              entity/class/table | optional deny-list
+            Entities            table | optional explicit entity list
+            MaxHits             number | optional
+            DamageForce         Vector/number/function/false | default: VJ-style
+            DamagePosition      Vector/function | default: ent:NearestPoint(Origin)
+            PreChecks / PostChecks / PreDamage / PostDamage callbacks
+
+        Returns: hitEntities, hitCount
+    -----------------------------------------------------------------------]]
+    function VJ.CPT:DoDamage(tbl)
+        tbl = istable(tbl) && tbl or {}
+        local attacker = _resolveEnt(tbl.Attacker)
+        local inflictor = _resolveEnt(tbl.Inflictor, attacker)
+        local origin = _resolvePos(tbl, attacker)
+        local direction = _resolveDir(tbl, attacker)
+        local distance = math.max(tonumber(tbl.Distance or tbl.Radius) or 100, 0)
+        local angle = math.Clamp(tonumber(tbl.Angle or tbl.AngleRadius) or 100, 0, 180)
+        local damageType = tonumber(tbl.DamageType) or DMG_SLASH
+        local damageAttacker = tbl.DamageAttacker == true
+        local use3DAngle = tbl.Use3DAngle == true
+        local visibilityCheck = tbl.VisibilityCheck == true
+        local maxHits = tonumber(tbl.MaxHits)
+        local preChecks = tbl.PreChecks or tbl.PreCheck
+        local postChecks = tbl.PostChecks or tbl.PostCheck
+        local hitEnts = {}
+        local candidates = istable(tbl.Entities) && tbl.Entities or ents.FindInSphere(origin, distance)
+        local angleCos = math.cos(math.rad(angle))
+
+        for _, ent in ipairs(candidates) do
+            if !IsValid(ent) then continue end
+            if !_doCallbacks(preChecks, ent, tbl) then continue end
+            if !damageAttacker && ent == attacker then continue end
+            if _isIgnored(ent, tbl.Ignore) then continue end
+            if !_runFilter(ent, tbl.Filter, tbl) then continue end
+
+            local targetPos = ent:NearestPoint(origin)
+            local delta = targetPos - origin
+            if delta:LengthSqr() > (distance * distance) then continue end
+
+            local dot
+            if use3DAngle then
+                if delta:LengthSqr() <= 0.0001 then
+                    dot = 1
+                else
+                    dot = direction:Dot(delta:GetNormalized())
+                end
+            else
+                local flatDir = Vector(direction.x, direction.y, 0)
+                local flatDelta = Vector(delta.x, delta.y, 0)
+                if flatDir:LengthSqr() <= 0.0001 or flatDelta:LengthSqr() <= 0.0001 then
+                    dot = 1
+                else
+                    dot = flatDir:GetNormalized():Dot(flatDelta:GetNormalized())
+                end
+            end
+            if dot <= angleCos then continue end
+
+            if visibilityCheck then
+                local visible = ent:VisibleVec(origin)
+                if !visible && IsValid(attacker) && attacker != world then visible = ent:Visible(attacker) end
+                if !visible then continue end
+            end
+            if !_doCallbacks(postChecks, ent, tbl) then continue end
+
+            local amount = _getDamage(tbl.Damage, ent, tbl, 10)
+            local dmgPos = targetPos
+            if isvector(tbl.DamagePosition) then
+                dmgPos = tbl.DamagePosition
+            elseif isfunction(tbl.DamagePosition) then
+                local result = tbl.DamagePosition(ent, tbl)
+                if isvector(result) then dmgPos = result end
+            end
+
+            local dmgInfo = DamageInfo()
+            _applyDamage(dmgInfo, ent, tbl, attacker, inflictor, amount, damageType, dmgPos)
+
+            local force = tbl.DamageForce
+            if force == nil then
+                force = direction * ((math.max(amount, 0) + 100) * 70)
+            elseif isfunction(force) then
+                force = force(ent, amount, direction, tbl)
+            elseif isnumber(force) then
+                force = direction * force
+            end
+            if isvector(force) then dmgInfo:SetDamageForce(force) end
+
+            if !_doCallbacks(tbl.PreDamage, ent, dmgInfo, tbl) then continue end
+            ent:TakeDamageInfo(dmgInfo)
+            hitEnts[#hitEnts + 1] = ent
+            _doCallbacks(tbl.PostDamage, ent, dmgInfo, tbl)
+
+            if maxHits && maxHits > 0 && #hitEnts >= maxHits then break end
+        end
+
+        return hitEnts, #hitEnts
+    end
+
+    --[[---------------------------------------------------------------------
+        Common fields:
+            Attacker             entity | default: world
+            Inflictor            entity | default: Attacker/world
+            Origin               Vector | default: Attacker:GetPos()/0,0,0
+            Radius               number | default: 150
+            Damage               number/function | default: 15
+            DamageType           enum | default: DMG_BLAST
+            DamageAttacker       bool | default: false
+            RealisticRadius      bool | default: true (VJ-style falloff)
+            DisableVisibilityCheck bool | default: false
+            Force                number/function/false | default: false
+            UpForce              number/false | default: Force behavior
+            UseConeDegree        number | optional
+            UseConeDirection     Vector | default: Direction/Attacker forward
+            Filter / Ignore / Entities / MaxHits
+            PreChecks / PostChecks / PreDamage / PostDamage callbacks
+
+        Returns: hitEntities, hitCount
+    -----------------------------------------------------------------------]]
+    function VJ.CPT:DoSphereDamage(tbl)
+        tbl = istable(tbl) && tbl or {}
+        local attacker = _resolveEnt(tbl.Attacker)
+        local inflictor = _resolveEnt(tbl.Inflictor, attacker)
+        local origin = _resolvePos(tbl, attacker)
+        local radius = math.max(tonumber(tbl.Radius or tbl.Distance) or 150, 0)
+        local damageType = tonumber(tbl.DamageType) or DMG_BLAST
+        local damageAttacker = tbl.DamageAttacker == true
+        local realisticRadius = tbl.RealisticRadius != false
+        local visibilityCheck = tbl.DisableVisibilityCheck != true
+        local maxHits = tonumber(tbl.MaxHits)
+        local preChecks = tbl.PreChecks or tbl.PreCheck
+        local postChecks = tbl.PostChecks or tbl.PostCheck
+        local hitEnts = {}
+
+        local candidates
+        if istable(tbl.Entities) then
+            candidates = tbl.Entities
+        elseif isnumber(tbl.UseConeDegree) then
+            local coneDir = _resolveDir({Direction = tbl.UseConeDirection or tbl.Direction}, attacker)
+            candidates = ents.FindInCone(origin, coneDir, radius, math.cos(math.rad(tbl.UseConeDegree)))
+        else
+            candidates = ents.FindInSphere(origin, radius)
+        end
+
+        for _, ent in ipairs(candidates) do
+            if !IsValid(ent) then continue end
+            if !_doCallbacks(preChecks, ent, tbl) then continue end
+            if !damageAttacker && ent == attacker then continue end
+            if _isIgnored(ent, tbl.Ignore) then continue end
+            if !_runFilter(ent, tbl.Filter, tbl) then continue end
+
+            local nearestPos = ent:NearestPoint(origin)
+            local dist = origin:Distance(nearestPos)
+            if dist > radius then continue end
+
+            if visibilityCheck then
+                local visible = ent:VisibleVec(origin)
+                if !visible && IsValid(attacker) && attacker != world then visible = ent:Visible(attacker) end
+                if !visible then continue end
+            end
+            if !_doCallbacks(postChecks, ent, tbl) then continue end
+
+            local maxDamage = _getDamage(tbl.Damage, ent, tbl, 15)
+            local amount = maxDamage
+            if realisticRadius && radius > 0 then
+                amount = math.min(math.max(maxDamage * ((radius - dist) + 150) / radius, maxDamage / 2), maxDamage)
+            end
+
+            local dmgPos = nearestPos
+            if isvector(tbl.DamagePosition) then
+                dmgPos = tbl.DamagePosition
+            elseif isfunction(tbl.DamagePosition) then
+                local result = tbl.DamagePosition(ent, tbl)
+                if isvector(result) then dmgPos = result end
+            end
+
+            local dmgInfo = DamageInfo()
+            _applyDamage(dmgInfo, ent, tbl, attacker, inflictor, amount, damageType, dmgPos)
+
+            local force = tbl.Force
+            if isfunction(force) then force = force(ent, amount, origin, tbl) end
+            if isnumber(force) && force != 0 then
+                local upForce = tbl.UpForce
+                local entCenter = ent:GetPos() + ent:OBBCenter()
+                local forceDir = entCenter - origin
+                if forceDir:LengthSqr() <= 0.0001 then forceDir = vecForward end
+
+                if ent:GetClass() == "prop_ragdoll" or ent:GetMoveType() == MOVETYPE_VPHYSICS then
+                    local phys = ent:GetPhysicsObject()
+                    if IsValid(phys) then
+                        local propForce = ent:GetClass() == "prop_ragdoll" && force * 1.5 or force
+                        local up = (upForce == false or upForce == nil) && (propForce / 9.4) or (tonumber(upForce) or 0)
+                        phys:ApplyForceCenter((entCenter + ent:GetUp() * up - origin) * propForce)
+                    end
+                else
+                    local finalForce = force * 1.2
+                    local up = (upForce == false or upForce == nil) && finalForce or (tonumber(upForce) or 0)
+                    dmgInfo:SetDamageForce((entCenter + ent:GetUp() * up - origin) * finalForce)
+                end
+            elseif isvector(force) then
+                dmgInfo:SetDamageForce(force)
+            end
+
+            if !_doCallbacks(tbl.PreDamage, ent, dmgInfo, tbl) then continue end
+            ent:TakeDamageInfo(dmgInfo)
+            hitEnts[#hitEnts + 1] = ent
+            _doCallbacks(tbl.PostDamage, ent, dmgInfo, tbl)
+
+            if maxHits && maxHits > 0 && #hitEnts >= maxHits then break end
+        end
+
+        return hitEnts, #hitEnts
+    end
 end

@@ -65,6 +65,10 @@ EmissiveSys.Queue = EmissiveSys.Queue or {}
 EmissiveSys.EntityCache = EmissiveSys.EntityCache or {}
 EmissiveSys.MatCache = EmissiveSys.MatCache or {}
 EmissiveSys.Rev = EmissiveSys.Rev or 0
+
+EmissiveSys.BlackList = EmissiveSys.BlackList or {}
+EmissiveSys.BlackList["phys_bone_follower"] = true
+
 local matBlackStr = "vgui/black"
 local matBlack = Material(matBlackStr)
 local matScreen = Material("pp/bleach_em")
@@ -391,6 +395,11 @@ hook_Add("PreDrawHalos", "EmissiveSys.Render", function()
 	render_SuppressEngineLighting(true)
 	for key, ent in pairs(EmissiveSys.Queue) do
 		if !IsValid(ent) or shouldSkipEntity(ent) then
+			EmissiveSys.Queue[key] = nil
+			EmissiveSys.EntityCache[ent] = nil
+			continue
+		end
+		if EmissiveSys.BlackList[ent:GetClass()] then
 			EmissiveSys.Queue[key] = nil
 			EmissiveSys.EntityCache[ent] = nil
 			continue

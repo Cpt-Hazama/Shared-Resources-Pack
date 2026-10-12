@@ -1,0 +1,35 @@
+"VertexLitGeneric"
+{
+	"$basetexture" 				"vgui/white"
+	"$bumpmap"					"vj_base/flat"
+	"$phongexponenttexture"		"vj_base/exponent"
+
+    "$nodecal" 					"1"
+    "$nocull" 					"1"
+
+	// "$color2" 					"[0.1 0.1 0.1]"
+    // "$blendtintbybasealpha" 	"1"
+
+	"$phong"                    "1"
+	"$phongboost"               "3"
+	"$phongfresnelranges"       "[0.15 0.545 0.115]"
+	"$phongdisablehalflambert"  "1"
+	"$phongalbedotint"          "10"
+	"$phongwarptexture" 		"cpthazama/phongwarp_steel"
+
+	"$envmap"                   "env_cubemap"
+	"$envmaptint" 				"[0.1 0.1 0.1]"
+	"$envmapfresnel"            "0.4"
+	"$basemapalphaenvmapmask" 	"1"
+
+	"$DEM_TintScale" 			"[0.25 0.25 0.25]"
+	"$DEM_Multiplier" 			"1"
+
+	"Proxies"
+	{
+		"DynamicEnvMap"
+		{
+			resultVar	"$envmaptint"
+		}
+	}
+}
