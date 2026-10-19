@@ -29,6 +29,7 @@ STUDIO_ROOTXFORM = 262144
 function VJ.CPT:CacheAnimations(ent)
 	if !IsValid(ent) then return end
 	local model = ent:GetModel()
+    if model == nil then return end
 	if VJ.CPT.AnimationCache[model] then return end
 
 	VJ.CPT.AnimationCache[model] = {}

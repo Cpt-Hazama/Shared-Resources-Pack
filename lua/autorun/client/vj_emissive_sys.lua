@@ -137,6 +137,36 @@ function EmissiveSys:EvalMaterial(materialName)
 	return rt.color, rt.brightness, rt.mask
 end
 
+function EmissiveSys:EvalEntityMaterial(ent, materialName)
+	local color, brightness, mask = self:EvalMaterial(materialName)
+	local def = self.Defs[materialName]
+	if !def or !def.EntityThink or !IsValid(ent) then
+		return color, brightness, mask
+	end
+	local cache = self.EntityCache[ent]
+	if !cache then return color, brightness, mask end
+	cache.entityRT = cache.entityRT or {}
+	local rt = cache.entityRT[materialName]
+	if !rt then
+		rt = {}
+		cache.entityRT[materialName] = rt
+	end
+	local ok, c, b, m = pcall(def.EntityThink, ent, CurTime(), rt, def, color, brightness, mask)
+	if !ok then return color, brightness, mask end
+	if c != nil then
+		if isvector(c) then
+			color = c
+		elseif istable(c) then
+			color = vecFromColorTbl(c)
+		elseif tonumber(c) then
+			color = vecFromColorTbl(def.Color) * tonumber(c)
+		end
+	end
+	if b != nil then brightness = tonumber(b) or brightness end
+	if m != nil then mask = m && normalizeMatName(m) or nil end
+	return color, brightness, mask
+end
+
 local function makeQueueKey(ent)
 	local id = ent:EntIndex()
 	if ent.EmissiveSys_CSEntity or ent:GetClass() == "class C_BaseFlex" then
@@ -322,6 +352,7 @@ function EmissiveSys:Add(materialName, def)
 		Brightness = tonumber(def.Brightness) or 1,
 		Mask = def.Mask && normalizeMatName(def.Mask) or nil,
 		Think = compiledThink,
+		EntityThink = def.EntityThink,
 		Proxies = def.Proxies,
 		_rt = nil,
 	}
@@ -433,7 +464,7 @@ hook_Add("PreDrawHalos", "EmissiveSys.Render", function()
 			local ed = cache.dataBySlot[slot]
 			local color, brightness, mask = ed && ed.color, ed && ed.brightness, ed && ed.mask
 			if ed && ed.matName then
-				color, brightness, mask = EmissiveSys:EvalMaterial(ed.matName)
+				color, brightness, mask = EmissiveSys:EvalEntityMaterial(ent, ed.matName)
 			end
 			
 			if mask then
