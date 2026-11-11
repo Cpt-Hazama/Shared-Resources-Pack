@@ -1,0 +1,24 @@
+"VertexLitGeneric"
+{
+	"$basetexture" 				"vgui/white"
+	"$bumpmap"					"vj_base/flat"
+	"$phongexponenttexture"		"vj_base/exponent"
+
+	"$nodecal"					"1"
+    "$nocull"                   "0"
+	"$color2"					"[1.4 1.4 1.4]"
+
+	"$phong"                    "1"
+	"$phongboost"               "0.25"
+	"$phongfresnelranges"       "[0.15 0.545 0.715]"
+	"$phongdisablehalflambert"  "1"
+	"$phongalbedotint"          "1"
+	"$phongalbedoboost"         "30"
+	"$phongwarptexture" 		"cpthazama/phongwarp_steel"
+
+	"$rimlight"					"1"
+	"$rimlightexponent"			"5000"
+	"$rimlightboost"            "0.1"
+
+	"$lightwarptexture" 		"cpthazama/shader_cel_common_b"
+}
